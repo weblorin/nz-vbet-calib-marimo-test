@@ -94,7 +94,7 @@ def _(level_path_select, long_df, pl, px):
         filtered_df,
         x="TotDrainAreaSqKM",
         y="ValleyWidth",
-        color="MeasuredBy",
+        color="level_path",
         symbol="MeasuredBy",
         title=f"Drainage Area vs. Valley Width{'' if level_path_select.value == 'All' else f' for {level_path_select.value}'}",
         labels={
