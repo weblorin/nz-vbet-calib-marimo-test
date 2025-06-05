@@ -10,7 +10,8 @@ def _():
     import polars as pl
     import psycopg
     import plotly.express as px
-    return mo, pl, psycopg, px
+    import numpy as np
+    return mo, np, pl, psycopg, px
 
 
 @app.cell
@@ -18,7 +19,7 @@ def _(pl, psycopg):
     # Connect using the hardcoded service name
     conn = psycopg.connect(service="NZCalibrationService")
 
-    # Query the database with explicit casting and NULL filtering
+    # Query the database for valley widths vs drainage area, with NULL filtering
     query = '''
     SELECT 
       level_path,
@@ -38,6 +39,18 @@ def _(pl, psycopg):
         pl.col("Width_Points").cast(pl.Float64)
     ])
 
+    # Query for calibration points
+    query = '''
+    SELECT cp.fid, cp.category, cp.transect_id, cp."HAND", cp."Slope", tp."TotDrainAreaSqKM" FROM calibration_points cp
+    LEFT JOIN transect_points tp ON tp."TransectId" = cp.transect_id 
+    '''
+    cb_df = pl.read_database(query, connection=conn, infer_schema_length=1000)
+
+    # Add level_path column by extracting prefix from transect_id
+    cb_df = cb_df.with_columns(
+        pl.col("transect_id").str.split("-").list.get(0).alias("level_path")
+    )
+
     # Close connection
     conn.close()
 
@@ -48,7 +61,13 @@ def _(pl, psycopg):
         variable_name="MeasuredBy",
         value_name="ValleyWidth"
     )
-    return (long_df,)
+    return cb_df, long_df
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Identifying valley bins by catchment area""")
+    return
 
 
 @app.cell
@@ -57,7 +76,7 @@ def _(long_df):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(long_df, mo):
     level_paths = sorted(long_df['level_path'].unique().to_list())
     measured_by_options = sorted(long_df['MeasuredBy'].unique().to_list())
@@ -111,28 +130,95 @@ def _(level_path_select, long_df, pl, px):
 
 
 @app.cell
-def _():
-    # fig = px.scatter(
-    #     long_df,
-    #     x="TotDrainAreaSqKM",
-    #     y="ValleyWidth",
-    #     color="MeasuredBy",
-    #     symbol="MeasuredBy",
-    #     facet_col="level_path",  # Facet by level_path
-    #     facet_col_wrap=4,
-    #     title="Drainage Area vs. Valley Width by Level Path",
-    #     labels={
-    #         "TotDrainAreaSqKM": "Total Drainage Area (sq km)",
-    #         "ValleyWidth": "Valley Width (m)",
-    #         "level_path": "Level Path",
-    #         "WidthType": "Width Type"
-    #     }
-    # )
+def _(mo):
+    mo.md(r"""# Curve fitting""")
+    return
 
-    # # Set min x and y to zero for all facets, but let Plotly choose the max
-    # fig.update_xaxes(range=[0, None])
-    # fig.update_yaxes(range=[0, None])
 
+@app.cell
+def _(mo):
+    mo.md(r"""## Parameters""")
+    lineparam_m = mo.ui.number(value=-1.144, step=0.001, label="fit m")
+    lineparam_b = mo.ui.number(value=8.199, step=0.001, label="fit b")
+    # Sq Metres. 0 and max() are the other boundaries, So 1 break point creates 2 bins; 2 creates 3; 
+    drainage_size_breaks = [25,1000] 
+    # import sys
+    def segments_from_breaks (): 
+        # size_breaks:list[float],min:float=0,max:float=sys.float_info.max
+        # sort the size_breaks 
+        # check that min < smallest size; max > largest size; remove any duplicates
+        # for i in size_breaks:
+        return [(0,25),(25,1000),(1000,9999999)]
+    return lineparam_b, lineparam_m, segments_from_breaks
+
+
+@app.cell
+def _(
+    cb_df,
+    level_path_select,
+    lineparam_b,
+    lineparam_m,
+    mo,
+    np,
+    pl,
+    px,
+    segments_from_breaks,
+):
+    # Filter the DataFrame based on the selected level_path
+    if level_path_select.value == "All":
+        filtered_cb_df = cb_df
+    else:
+        filtered_cb_df = cb_df.filter(
+            pl.col("level_path") == level_path_select.value
+        )
+    filtered_cb_df
+
+    segments = segments_from_breaks()
+    print(segments)
+    mo.vstack(filtered_cb_df)    
+
+    # Add theoretical line: Slope = m * ln(DrainageArea) + b using polars
+    if len(filtered_cb_df) > 0:
+        x_vals = filtered_cb_df['TotDrainAreaSqKM'].to_numpy()
+        x_line = np.linspace(x_vals.min(), x_vals.max(), 100)
+        y_line = lineparam_m.value * np.log(x_line) + lineparam_b.value
+        line_df = pl.DataFrame({
+            'TotDrainAreaSqKM': x_line,
+            'Slope': y_line
+        })
+    else:
+        line_df = pl.DataFrame({'TotDrainAreaSqKM': [], 'Slope': []})
+
+    handplot = px.scatter(
+        filtered_cb_df,
+        x="TotDrainAreaSqKM",
+        y="Slope",
+        color="category",
+        symbol="category",
+        title=f"Drainage Area vs. Slope{'' if level_path_select.value == 'All' else f' for {level_path_select.value}'}",
+        labels={
+            "TotDrainAreaSqKM": "Total Drainage Area (sq km) at transect point",
+            "Slope": "Slope at this calib point"
+        }
+    )
+    # Set x-axis to log scale
+    handplot.update_xaxes(type="log")
+    # Add the line
+    if len(line_df) > 0:
+        import plotly.graph_objects as go
+        handplot.add_traces(go.Scatter(
+            x=line_df['TotDrainAreaSqKM'].to_numpy(),
+            y=line_df['Slope'].to_numpy(),
+            mode='lines',
+            name=f'Slope = {lineparam_m.value} * ln(DrainageArea) + {lineparam_b.value}',
+            line=dict(color='black', dash='dash')
+        ))
+    return (handplot,)
+
+
+@app.cell
+def _(handplot, lineparam_b, lineparam_m, mo):
+    mo.vstack([handplot,mo.hstack(items=[lineparam_m, lineparam_b])])
     return
 
 

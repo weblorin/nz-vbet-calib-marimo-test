@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "duckdb>=1.0.0",
-    "marimo>=0.1.0",
+    "marimo[sql]>=0.1.0",
     "numpy>=2.2.6",
     "plotly>=6.1.2",
     "polars[pyarrow]>=1.9.0",
