@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.13.15"
-app = marimo.App(app_title="VBET Calib")
+app = marimo.App(width="full", app_title="VBET Calib")
 
 
 @app.cell
@@ -193,11 +193,13 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
             segment_df,
             x="Slope",
             y="category_bin",
-            title=f"Drainage area {segment[0]} >= x < {segment[1]}"
+            title=f"Drainage area {segment[0]} >= x < {segment[1]}",
+            width=500,
+            height=500
         )
         slopeplots.append(slopeplot)
 
-    mo.hstack(slopeplots)        
+    mo.hstack(slopeplots, wrap=True)        
     return (filtered_cb_df,)
 
 
