@@ -145,7 +145,6 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    mo.md(r"""## Parameters""")
     lineparam_m = mo.ui.number(value=-1.144, step=0.001, label="fit m")
     lineparam_b = mo.ui.number(value=8.199, step=0.001, label="fit b")
     # to do - not all hardcoded :-)
@@ -159,6 +158,7 @@ def _(mo):
         # for i in size_breaks:
         # return >= lower bound and < upper bound
         return [(0,25),(25,1000),(1000,9999999)]
+    mo.md(r"""## Parameters""")
     return lineparam_b, lineparam_m, segments_from_breaks
 
 
@@ -222,6 +222,7 @@ def _(
     # Add theoretical line: Slope = m * ln(DrainageArea) + b using polars
     if len(filtered_cb_df) > 0:
         x_vals = filtered_cb_df['TotDrainAreaSqKM'].to_numpy()
+        x_vals = x_vals[~np.isnan(x_vals)]  # Remove nan values
         x_line = np.linspace(x_vals.min(), x_vals.max(), 100)
         y_line = lineparam_m.value * np.log(x_line) + lineparam_b.value
         line_df = pl.DataFrame({
@@ -231,7 +232,7 @@ def _(
     else:
         line_df = pl.DataFrame({'TotDrainAreaSqKM': [], 'Slope': []})
 
-    handplot = px.scatter(
+    logplot_da_slope = px.scatter(
         filtered_cb_df,
         x="TotDrainAreaSqKM",
         y="Slope",
@@ -244,11 +245,11 @@ def _(
         }
     )
     # Set x-axis to log scale
-    handplot.update_xaxes(type="log")
+    logplot_da_slope.update_xaxes(type="log")
     # Add the line
     if len(line_df) > 0:
         import plotly.graph_objects as go
-        handplot.add_traces(go.Scatter(
+        logplot_da_slope.add_traces(go.Scatter(
             x=line_df['TotDrainAreaSqKM'].to_numpy(),
             y=line_df['Slope'].to_numpy(),
             mode='lines',
@@ -256,7 +257,7 @@ def _(
             line=dict(color='black', dash='dash')
         ))
 
-    mo.vstack([handplot,mo.hstack(items=[lineparam_m, lineparam_b])])
+    mo.vstack([logplot_da_slope,mo.hstack(items=[lineparam_m, lineparam_b])])
     return
 
 
