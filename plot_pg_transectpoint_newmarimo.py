@@ -15,6 +15,12 @@ def _():
 
 
 @app.cell
+def _(mo):
+    mo.md(r"""# Load data from Postgres""")
+    return
+
+
+@app.cell
 def _(pl, psycopg):
     # Connect using the hardcoded service name
     conn = psycopg.connect(service="NZCalibrationService")
@@ -65,14 +71,16 @@ def _(pl, psycopg):
 
 
 @app.cell
-def _(mo):
-    mo.md(r"""# Identifying valley bins by catchment area""")
+def _(cb_df, long_df, mo):
+    mo.accordion({"Transects with drainage and width":long_df,
+                  "Calibration points with slope, hand and drainage": cb_df
+                 })
     return
 
 
 @app.cell
-def _(long_df):
-    long_df
+def _(mo):
+    mo.md(r"""# Identifying valley bins by catchment area""")
     return
 
 
@@ -140,6 +148,7 @@ def _(mo):
     mo.md(r"""## Parameters""")
     lineparam_m = mo.ui.number(value=-1.144, step=0.001, label="fit m")
     lineparam_b = mo.ui.number(value=8.199, step=0.001, label="fit b")
+    # to do - not all hardcoded :-)
     # Sq Metres. 0 and max() are the other boundaries, So 1 break point creates 2 bins; 2 creates 3; 
     drainage_size_breaks = [25,1000] 
     # import sys
@@ -148,22 +157,13 @@ def _(mo):
         # sort the size_breaks 
         # check that min < smallest size; max > largest size; remove any duplicates
         # for i in size_breaks:
+        # return >= lower bound and < upper bound
         return [(0,25),(25,1000),(1000,9999999)]
     return lineparam_b, lineparam_m, segments_from_breaks
 
 
 @app.cell
-def _(
-    cb_df,
-    level_path_select,
-    lineparam_b,
-    lineparam_m,
-    mo,
-    np,
-    pl,
-    px,
-    segments_from_breaks,
-):
+def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
     # Filter the DataFrame based on the selected level_path
     if level_path_select.value == "All":
         filtered_cb_df = cb_df
@@ -171,12 +171,54 @@ def _(
         filtered_cb_df = cb_df.filter(
             pl.col("level_path") == level_path_select.value
         )
-    filtered_cb_df
+    # Add category_bin column: 0 for 'hill', 1 for 'active', 'inactive', 'channel', null otherwise
+    filtered_cb_df = filtered_cb_df.with_columns(
+        pl.when(pl.col("category") == "hill")
+          .then(0)
+          .when(pl.col("category").is_in(["active", "inactive", "channel"]))
+          .then(1)
+          .otherwise(None)
+          .alias("category_bin")
+    )
 
     segments = segments_from_breaks()
-    print(segments)
-    mo.vstack(filtered_cb_df)    
 
+    slopeplots = []
+    for segment in segments:
+        segment_df = filtered_cb_df.filter(
+            (pl.col('TotDrainAreaSqKM')>=segment[0]) & 
+            (pl.col('TotDrainAreaSqKM')<segment[1])
+        )
+        slopeplot = px.scatter(
+            segment_df,
+            x="Slope",
+            y="category_bin",
+            title=f"Drainage area {segment[0]} >= x < {segment[1]}"
+        )
+        slopeplots.append(slopeplot)
+
+    mo.hstack(slopeplots)        
+    return (filtered_cb_df,)
+
+
+@app.cell
+def _(mo):
+    mo.md(r"""# Old stuff - just for examples""")
+    return
+
+
+@app.cell
+def _(
+    filtered_cb_df,
+    level_path_select,
+    lineparam_b,
+    lineparam_m,
+    mo,
+    np,
+    pl,
+    px,
+):
+    # OLD STUFF - JUST KEEPING FOR EXAMPLES
     # Add theoretical line: Slope = m * ln(DrainageArea) + b using polars
     if len(filtered_cb_df) > 0:
         x_vals = filtered_cb_df['TotDrainAreaSqKM'].to_numpy()
@@ -213,11 +255,7 @@ def _(
             name=f'Slope = {lineparam_m.value} * ln(DrainageArea) + {lineparam_b.value}',
             line=dict(color='black', dash='dash')
         ))
-    return (handplot,)
 
-
-@app.cell
-def _(handplot, lineparam_b, lineparam_m, mo):
     mo.vstack([handplot,mo.hstack(items=[lineparam_m, lineparam_b])])
     return
 
