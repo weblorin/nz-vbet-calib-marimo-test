@@ -184,6 +184,7 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
     segments = segments_from_breaks()
 
     slopeplots = []
+    handplots = []
     for segment in segments:
         segment_df = filtered_cb_df.filter(
             (pl.col('TotDrainAreaSqKM')>=segment[0]) & 
@@ -197,9 +198,21 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
             width=500,
             height=500
         )
+        handplot = px.scatter(
+            segment_df,
+            x="HAND",
+            y="category_bin",
+            title=f"Drainage area {segment[0]} >= x < {segment[1]}",
+            width=500,
+            height=500
+        )
         slopeplots.append(slopeplot)
+        handplots.append(handplot)
 
-    mo.hstack(slopeplots, wrap=True)        
+    mo.vstack([
+        mo.hstack(slopeplots, wrap=True),
+        mo.hstack(handplots, wrap=True)
+        ])
     return (filtered_cb_df,)
 
 
