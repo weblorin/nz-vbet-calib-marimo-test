@@ -171,14 +171,14 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
         filtered_cb_df = cb_df.filter(
             pl.col("level_path") == level_path_select.value
         )
-    # Add category_bin column: 0 for 'hill', 1 for 'active', 'inactive', 'channel', null otherwise
+    # Add binary valley column: 0 for 'hill', 1 for 'active', 'inactive', 'channel', null otherwise
     filtered_cb_df = filtered_cb_df.with_columns(
         pl.when(pl.col("category") == "hill")
           .then(0)
           .when(pl.col("category").is_in(["active", "inactive", "channel"]))
           .then(1)
           .otherwise(None)
-          .alias("category_bin")
+          .alias("valley")
     )
 
     segments = segments_from_breaks()
@@ -193,7 +193,8 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
         slopeplot = px.scatter(
             segment_df,
             x="Slope",
-            y="category_bin",
+            y="valley",
+            symbol="category",  # Add this line
             title=f"Drainage area {segment[0]} >= x < {segment[1]}",
             width=500,
             height=500
@@ -201,7 +202,8 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
         handplot = px.scatter(
             segment_df,
             x="HAND",
-            y="category_bin",
+            y="valley",
+            symbol="category",  # Add this line
             title=f"Drainage area {segment[0]} >= x < {segment[1]}",
             width=500,
             height=500
