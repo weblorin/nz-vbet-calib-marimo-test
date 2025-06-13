@@ -11,7 +11,8 @@ def _():
     import psycopg
     import plotly.express as px
     import numpy as np
-    return mo, np, pl, psycopg, px
+    from sklearn.linear_model import LogisticRegression  
+    return LogisticRegression, mo, np, pl, psycopg, px
 
 
 @app.cell
@@ -219,6 +220,98 @@ def _(cb_df, level_path_select, mo, pl, px, segments_from_breaks):
 
 
 @app.cell
+def _(
+    LogisticRegression,
+    filtered_cb_df,
+    go,
+    mo,
+    np,
+    pl,
+    segments_from_breaks,
+):
+    def _logistic_reg():
+        segments = segments_from_breaks()
+        results = []
+
+        for segment in segments:
+            segment_df = filtered_cb_df.filter(
+                (pl.col('TotDrainAreaSqKM') >= segment[0]) &
+                (pl.col('TotDrainAreaSqKM') < segment[1])
+            ).select(['Slope', 'HAND', 'valley'])
+            # Drop rows with missing values
+            segment_df = segment_df.drop_nulls()
+            if segment_df.height == 0:
+                results.append({
+                    "segment": f"{segment[0]}-{segment[1]}",
+                    "coef_Slope": None,
+                    "coef_HAND": None,
+                    "intercept": None,
+                    "n_samples": 0,
+                    "min_Slope": None,
+                    "max_Slope": None,
+                    "min_HAND": None,
+                    "max_HAND": None,
+                })
+                continue
+            X = np.stack([segment_df['Slope'].to_numpy(), segment_df['HAND'].to_numpy()], axis=1)
+            y = segment_df['valley'].to_numpy()
+            model = LogisticRegression()
+            model.fit(X, y)
+            results.append({
+                "segment": f"{segment[0]}-{segment[1]}",
+                "coef_Slope": model.coef_[0][0],
+                "coef_HAND": model.coef_[0][1],
+                "intercept": model.intercept_[0],
+                "n_samples": len(y),
+                "min_Slope": segment_df['Slope'].min(),
+                "max_Slope": segment_df['Slope'].max(),
+                "min_HAND": segment_df['HAND'].min(),
+                "max_HAND": segment_df['HAND'].max()
+            })
+        return results
+
+
+    results = _logistic_reg()
+
+    def _lr_plots(results):
+        figs = []
+        """this is example for 1, but we want to do for all 3"""
+        result = results[1]  
+        slope_range = np.linspace(result["min_Slope"],result["max_Slope"],50)
+        hand_range = np.linspace(result["min_HAND"],result["max_HAND"],50)
+        intercept = result["intercept"]
+        coef_slope = result["coef_Slope"]
+        coef_hand = result["coef_HAND"]
+        SLOPE, HAND = np.meshgrid(slope_range,hand_range)
+        Z = 1 / (1 + np.exp(-(intercept + coef_slope * SLOPE + coef_hand * HAND)))
+        modelfitfig =go.Figure(data=[go.Surface(x=SLOPE, y=HAND, z=Z,
+                                               hovertemplate=
+                "Slope: %{x:.2f}<br>HAND: %{y:.2f}<br>Probability: %{z:.3f}<extra></extra>")])
+        modelfitfig.update_layout(
+            title="Probability Surface: Valley=1",
+            scene=dict(
+            xaxis_title='Slope',
+            yaxis_title='HAND',
+            zaxis_title='Probability'
+            ))
+        return modelfitfig
+
+
+    mo.vstack([
+    mo.md(r"""
+    The logistic regression formula is:
+
+    $$
+    p = \frac{1}{1 + \exp\left(-(\beta_0 + \beta_1 \cdot \text{Slope} + \beta_2 \cdot \text{HAND})\right)}
+    $$
+    """), 
+    results,
+    _lr_plots(results)
+    ])
+    return
+
+
+@app.cell
 def _(mo):
     mo.md(r"""# Old stuff - just for examples""")
     return
@@ -275,7 +368,7 @@ def _(
         ))
 
     mo.vstack([logplot_da_slope,mo.hstack(items=[lineparam_m, lineparam_b])])
-    return
+    return (go,)
 
 
 if __name__ == "__main__":
