@@ -11,5 +11,6 @@ dependencies = [
     "plotly>=6.1.2",
     "polars[pyarrow]>=1.9.0",
     "psycopg>=3.2.9",
+    "scikit-learn>=1.7.0",
     "sqlglot>=23.4",
 ]
