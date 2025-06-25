@@ -50,6 +50,7 @@ def _(pl, psycopg):
     query = '''
     SELECT cp.fid, cp.category, cp.transect_id, cp."HAND", cp."Slope", tp."TotDrainAreaSqKM" FROM calibration_points cp
     LEFT JOIN transect_points tp ON tp."TransectId" = cp.transect_id 
+    WHERE "Discard" = false
     '''
     cb_df = pl.read_database(query, connection=conn, infer_schema_length=1000)
 
@@ -57,6 +58,7 @@ def _(pl, psycopg):
     cb_df = cb_df.with_columns(
         pl.col("transect_id").str.split("-").list.get(0).alias("level_path")
     )
+
 
     # Close connection
     conn.close()
@@ -239,7 +241,13 @@ def _(
                 (pl.col('TotDrainAreaSqKM') < segment[1])
             ).select(['Slope', 'HAND', 'valley'])
             # Drop rows with missing values
+            segment_df = segment_df.with_columns([
+                pl.col("Slope").fill_nan(None),
+                pl.col("HAND").fill_nan(None),
+                pl.col("valley").fill_nan(None)
+            ])
             segment_df = segment_df.drop_nulls()
+            print (segment_df.shape)
             if segment_df.height == 0:
                 results.append({
                     "segment": f"{segment[0]}-{segment[1]}",
@@ -256,6 +264,9 @@ def _(
             X = np.stack([segment_df['Slope'].to_numpy(), segment_df['HAND'].to_numpy()], axis=1)
             y = segment_df['valley'].to_numpy()
             model = LogisticRegression()
+
+            assert not np.isnan(X).any(), "X still contains NaN!"
+            assert not np.isnan(y).any(), "y still contains NaN!"
             model.fit(X, y)
             results.append({
                 "segment": f"{segment[0]}-{segment[1]}",
